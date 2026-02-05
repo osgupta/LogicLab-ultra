@@ -1,4 +1,3 @@
-
 export type NodeType = 
   | 'AND' | 'OR' | 'NOT' | 'XOR' | 'NAND' | 'NOR' | 'XNOR' | 'BUFFER'
   | 'SWITCH' | 'BULB' | 'CLOCK' | 'BUTTON' | 'CONSTANT_1' | 'CONSTANT_0'
@@ -11,7 +10,10 @@ export type NodeType =
   | 'MUX_2_1' | 'MUX_4_1' | 'DEMUX_1_2' | 'DEMUX_1_4'
   | 'DECODER_2_4' | 'PRIORITY_ENCODER_4_2'
   | 'HEX_DISPLAY' | 'SEVEN_SEGMENT'
-  | 'JUNCTION';
+  | 'JUNCTION'
+  | 'LOGIC_PROBE'
+  | 'BINARY_MONITOR_4BIT'
+  | 'BINARY_MONITOR_8BIT';
 
 export interface Point {
   x: number;
@@ -31,7 +33,6 @@ export interface NodeData {
   position: Point;
   inputs: boolean[];
   outputs: boolean[];
-  // Used for stateful components like Flip-Flops to detect edges
   internalState?: {
     lastClock?: boolean;
     storedValue?: boolean;
@@ -40,7 +41,6 @@ export interface NodeData {
     memory?: number[]; // For RAM arrays
     [key: string]: any;
   };
-  // Customizable properties
   properties?: {
     label?: string;
     inputCount?: number;
@@ -58,6 +58,9 @@ export interface Wire {
   targetNodeId: string;
   targetInputIndex: number;
   state: boolean;
+  color?: string; // Inactive color
+  activeColor?: string; // Color when High
+  thickness?: number; // Width of the wire
 }
 
 export interface CircuitState {

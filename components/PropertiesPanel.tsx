@@ -1,207 +1,220 @@
 import React from 'react';
-import { NodeData, NodeType } from '../types';
-import { Settings2 } from 'lucide-react';
-import { VARIABLE_INPUT_GATES } from '../utils/componentUtils';
+import { NodeData, Wire } from '../types';
+import { Settings2, Type, Palette, Clock, X, Droplets, Zap, Power, Activity, ArrowLeft } from 'lucide-react';
 
 interface PropertiesPanelProps {
   node: NodeData | null;
+  wire: Wire | null;
   onUpdate: (id: string, updates: Partial<NodeData>) => void;
+  onUpdateWire: (id: string, updates: Partial<Wire>) => void;
+  width: number | string;
+  onClose?: () => void;
+  isMobile?: boolean;
 }
 
-export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ node, onUpdate }) => {
-  if (!node) {
+const PRESET_COLORS = [
+  { name: 'Default', off: '#52525b', on: '#22d3ee' },
+  { name: 'Power', off: '#7f1d1d', on: '#ef4444' },
+  { name: 'Logic', off: '#064e3b', on: '#22c55e' },
+  { name: 'Clock', off: '#78350f', on: '#f59e0b' },
+  { name: 'Bus', off: '#1e3a8a', on: '#3b82f6' },
+  { name: 'Neutral', off: '#3f3f46', on: '#a1a1aa' },
+];
+
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ node, wire, onUpdate, onUpdateWire, width, onClose, isMobile }) => {
+  const renderSimpleRow = (label: string, icon: React.ReactNode, control: React.ReactNode) => (
+    <div className="flex items-center justify-between py-4 border-b border-zinc-100 dark:border-zinc-800/50 last:border-0">
+        <div className="flex items-center gap-3 text-zinc-600 dark:text-zinc-400">
+            {icon}<span className="text-sm font-medium">{label}</span>
+        </div>
+        <div className="w-1/2 flex justify-end">{control}</div>
+    </div>
+  );
+
+  const renderHeader = (title: string, Icon: any) => (
+    <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mt-8 mb-4 flex items-center gap-1.5">
+      <Icon size={14} className="text-zinc-400 dark:text-zinc-600" /> {title}
+    </div>
+  );
+
+  if (!node && !wire) {
     return (
-      <div className="w-64 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 p-6 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 h-full select-none transition-colors duration-300">
-         <Settings2 size={32} className="mb-3 opacity-50" />
-         <p className="text-sm font-medium">Select a component</p>
-         <p className="text-xs text-zinc-500 dark:text-zinc-600 text-center mt-1">Click on any component on the canvas to view and edit its properties.</p>
+      <div style={{ width }} className="bg-white dark:bg-zinc-950 p-6 flex flex-col items-center justify-center text-zinc-400 h-full max-w-2xl mx-auto">
+         <Settings2 size={48} className="mb-4 opacity-20" />
+         <p className="text-lg font-medium text-zinc-500">No Selection</p>
+         <p className="text-xs mt-2 text-center opacity-50 px-8 italic">Please select a component or wire in the circuit to edit its properties.</p>
+         <button 
+           onClick={onClose} 
+           className="mt-8 flex items-center gap-2 px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-bold shadow-lg transition-all active:scale-95"
+         >
+           <ArrowLeft size={16} /> Back to Circuit
+         </button>
       </div>
     );
   }
 
-  const isGate = VARIABLE_INPUT_GATES.includes(node.type) || ['BUFFER', 'NOT'].includes(node.type);
-  const isStateful = ['D_FF', 'T_FF', 'JK_FF', 'SR_FF', 'D_LATCH'].includes(node.type);
-  const isSwitch = ['SWITCH'].includes(node.type);
-  const isROM = node.type === 'ROM_1BIT';
-  
-  // Helpers for multi-bit IO
-  const isMultiBitInput = node.type.startsWith('INPUT_') && node.type.includes('BIT');
-  const isMultiBitOutput = node.type.startsWith('OUTPUT_') && node.type.includes('BIT');
-  const isMultiBit = isMultiBitInput || isMultiBitOutput;
+  // Determine if component supports propagation delay (Gates and FFs)
+  const supportsDelay = node && [
+    'AND', 'OR', 'NOT', 'XOR', 'NAND', 'NOR', 'XNOR', 'BUFFER',
+    'D_LATCH', 'D_FF', 'JK_FF', 'T_FF', 'SR_FF', 'GATED_SR_LATCH', 'HALF_ADDER', 'FULL_ADDER'
+  ].includes(node.type);
 
-  const getBitWidth = (type: NodeType) => {
-      if (type.includes('2BIT')) return 2;
-      if (type.includes('4BIT')) return 4;
-      if (type.includes('8BIT')) return 8;
-      if (type.includes('16BIT')) return 16;
-      return 0;
-  };
-
-  const currentBitWidth = isMultiBit ? getBitWidth(node.type) : 0;
-
-  const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      onUpdate(node.id, { properties: { ...node.properties, label: e.target.value } });
-  };
-
-  const handleInputCountChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const count = parseInt(e.target.value, 10);
-      onUpdate(node.id, { 
-          properties: { ...node.properties, inputCount: count }
-      });
-  };
-
-  const handleBitWidthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const width = parseInt(e.target.value);
-      let newType = node.type;
-      
-      if (isMultiBitInput) newType = `INPUT_${width}BIT` as NodeType;
-      else if (isMultiBitOutput) newType = `OUTPUT_${width}BIT` as NodeType;
-      
-      if (newType !== node.type) {
-          onUpdate(node.id, { type: newType });
-      }
-  };
-
-  const handleDelayChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const delay = Math.max(0, parseInt(e.target.value, 10) || 0);
-      onUpdate(node.id, {
-          properties: { ...node.properties, propagationDelay: delay }
-      });
-  };
-
-  const handleInitialStateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      onUpdate(node.id, {
-          properties: { ...node.properties, initialState: e.target.checked }
-      });
-  };
-
-  const handleROMValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onUpdate(node.id, {
-        properties: { ...node.properties, romValue: e.target.checked }
-    });
-};
+  // Determine if component supports initial state
+  const supportsInitialState = node && [
+    'SWITCH', 'D_LATCH', 'D_FF', 'JK_FF', 'T_FF', 'SR_FF', 'GATED_SR_LATCH', 'JK_MASTER_SLAVE'
+  ].includes(node.type);
 
   return (
-    <div className="w-64 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-xl transition-colors duration-300">
-       <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center space-x-2">
-          <div className="w-6 h-6 rounded bg-cyan-100 dark:bg-cyan-900/50 flex items-center justify-center">
-             <Settings2 size={14} className="text-cyan-600 dark:text-cyan-400" />
+    <div style={{ width }} className="bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden">
+       {/* Focused Header */}
+       <div className="h-16 flex items-center px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0">
+          <div className="flex items-center gap-4 max-w-4xl mx-auto w-full">
+             <button 
+               onClick={onClose} 
+               className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors text-zinc-500"
+               title="Return to Workspace"
+             >
+               <ArrowLeft size={20} />
+             </button>
+             <div className="flex items-center gap-2">
+                <Settings2 size={20} className="text-cyan-600" />
+                <span className="font-bold text-base text-zinc-800 dark:text-zinc-200">Component Settings</span>
+             </div>
+             <div className="ml-auto flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-500">
+               ID: {(wire || node)!.id.split('-').slice(-1)[0]}
+             </div>
           </div>
-          <span className="font-semibold text-sm text-zinc-800 dark:text-zinc-200">Component Properties</span>
        </div>
        
-       <div className="p-4 space-y-6 overflow-y-auto flex-1">
-          {/* General Section */}
-          <div className="space-y-3">
-             <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">General</div>
-             
-             <div className="space-y-1">
-                <label className="text-xs text-zinc-500 dark:text-zinc-400">Type</label>
-                <div className="w-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 font-mono">
-                    {node.type}
+       <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="max-w-xl mx-auto px-6 py-8">
+            {wire ? (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                    <div>
+                      {renderHeader("Visual Appearance", Palette)}
+                      
+                      {renderSimpleRow("Default Color", <Droplets size={18} />, 
+                        <input type="color" value={wire.color || '#52525b'} onChange={(e) => onUpdateWire(wire.id, { color: e.target.value })} className="w-10 h-10 rounded-lg cursor-pointer border-2 border-zinc-200 dark:border-zinc-700 p-0 bg-transparent overflow-hidden"/>
+                      )}
+                      
+                      {renderSimpleRow("Active Color (High)", <Droplets size={18} className="text-cyan-500" />, 
+                        <input type="color" value={wire.activeColor || '#22d3ee'} onChange={(e) => onUpdateWire(wire.id, { activeColor: e.target.value })} className="w-10 h-10 rounded-lg cursor-pointer border-2 border-zinc-200 dark:border-zinc-700 p-0 bg-transparent overflow-hidden"/>
+                      )}
+
+                      <div className="mt-6">
+                        <div className="text-[10px] text-zinc-500 mb-3 font-bold uppercase tracking-widest">Theme Presets</div>
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                          {PRESET_COLORS.map((p) => (
+                            <button 
+                              key={p.name}
+                              onClick={() => onUpdateWire(wire.id, { color: p.off, activeColor: p.on })}
+                              title={p.name}
+                              className="group relative flex flex-col items-center gap-1.5 transition-transform active:scale-90"
+                            >
+                              <div className="w-full aspect-square rounded-xl border-2 border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col shadow-sm group-hover:border-cyan-500">
+                                <div className="flex-1" style={{ backgroundColor: p.on }} />
+                                <div className="flex-1" style={{ backgroundColor: p.off }} />
+                              </div>
+                              <span className="text-[9px] font-medium text-zinc-500">{p.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800/50">
+                        {renderHeader("Line Geometry", Zap)}
+                        <div className="flex justify-between mb-3">
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Path Thickness</span>
+                          <span className="text-sm font-mono text-cyan-600 dark:text-cyan-400">{wire.thickness || 2}px</span>
+                        </div>
+                        <input type="range" min="1" max="12" step="1" value={wire.thickness || 2} onChange={(e) => onUpdateWire(wire.id, { thickness: parseInt(e.target.value) })} className="w-full h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>
+                        <div className="flex justify-between mt-2 text-[10px] text-zinc-400 px-1">
+                          <span>1px</span>
+                          <span>6px (Default)</span>
+                          <span>12px</span>
+                        </div>
+                    </div>
                 </div>
-             </div>
+            ) : (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="first:mt-0">
+                      {renderHeader("Component Identity", Type)}
+                      {renderSimpleRow("Friendly Name", <Type size={18} />, 
+                        <input 
+                          type="text" 
+                          value={node!.properties?.label || ''} 
+                          onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, label: e.target.value } })} 
+                          className="w-full max-w-[200px] bg-zinc-50 dark:bg-zinc-900 text-right text-sm focus:ring-2 focus:ring-cyan-500 rounded-lg px-3 py-2 border border-zinc-200 dark:border-zinc-700 outline-none transition-all" 
+                          placeholder="e.g. Master Clock"
+                        />
+                      )}
+                      {renderSimpleRow("Shell Color", <Palette size={18} />, 
+                        <input type="color" value={node!.properties?.color || '#18181b'} onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, color: e.target.value } })} className="w-10 h-10 rounded-lg cursor-pointer border-2 border-zinc-200 dark:border-zinc-700 p-0 bg-transparent overflow-hidden"/>
+                      )}
+                    </div>
 
-             <div className="space-y-1">
-                <label className="text-xs text-zinc-500 dark:text-zinc-400">Label</label>
-                <input 
-                    type="text" 
-                    value={node.properties?.label || ''} 
-                    onChange={handleLabelChange}
-                    placeholder="Component Name..."
-                    className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 focus:border-cyan-500 focus:outline-none transition-colors"
-                />
-             </div>
-          </div>
+                    {supportsInitialState && (
+                      <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800/50">
+                        {renderHeader("Logic Behavior", Power)}
+                        {renderSimpleRow("Power-On State", <Power size={18} className={node!.properties?.initialState ? "text-cyan-500" : "text-zinc-500"} />, 
+                          <button 
+                            onClick={() => onUpdate(node!.id, { properties: { ...node!.properties, initialState: !node!.properties?.initialState } })}
+                            className={`w-14 h-7 rounded-full transition-all relative flex items-center px-1.5 shadow-inner ${node!.properties?.initialState ? 'bg-cyan-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+                          >
+                            <div className={`w-4.5 h-4.5 bg-white rounded-full shadow-md transition-transform ${node!.properties?.initialState ? 'translate-x-7' : 'translate-x-0'}`} />
+                          </button>
+                        )}
+                        <p className="text-[11px] text-zinc-400 mt-3 leading-relaxed">
+                          Determines the logical state when the circuit is first initialized or reset.
+                        </p>
+                      </div>
+                    )}
 
-          <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+                    {node!.type === 'CLOCK' && (
+                        <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800/50">
+                            {renderHeader("Signal Configuration", Activity)}
+                            <div className="flex justify-between mb-3">
+                              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Pulse Interval (Frequency)</span>
+                              <span className="text-sm font-mono text-amber-500">{node!.properties?.interval || 20} ticks</span>
+                            </div>
+                            <input type="range" min="2" max="200" step="2" value={node!.properties?.interval || 20} onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, interval: parseInt(e.target.value) } })} className="w-full h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg accent-amber-500 appearance-none cursor-pointer"/>
+                            <div className="text-[11px] text-zinc-400 mt-4 bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 italic">
+                              A lower interval results in a faster clock frequency. 20 ticks is approximately 1 second at 50Hz simulation speed.
+                            </div>
+                        </div>
+                    )}
 
-          {/* Attributes Section */}
-          <div className="space-y-3">
-             <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Attributes</div>
+                    {supportsDelay && (
+                      <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800/50">
+                         {renderHeader("Timing & Performance", Zap)}
+                         <div className="flex justify-between mb-3">
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Propagation Delay</span>
+                          <span className="text-sm font-mono text-cyan-500">{node!.properties?.propagationDelay || 0}ns</span>
+                        </div>
+                        <input 
+                          type="range" min="0" max="250" step="5"
+                          value={node!.properties?.propagationDelay || 0} 
+                          onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, propagationDelay: parseInt(e.target.value) } })} 
+                          className="w-full h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg accent-cyan-500 appearance-none cursor-pointer"
+                        />
+                        <div className="text-[11px] text-zinc-400 mt-4 leading-relaxed">
+                          Simulates signal latency across the logic gate. In large circuits, high delays can cause race conditions or synchronization issues.
+                        </div>
+                      </div>
+                    )}
 
-             {/* Dynamic Inputs for Gates */}
-             {VARIABLE_INPUT_GATES.includes(node.type) && (
-                 <div className="space-y-1">
-                    <label className="text-xs text-zinc-500 dark:text-zinc-400">Number of Inputs</label>
-                    <select 
-                        value={node.properties?.inputCount || 2}
-                        onChange={handleInputCountChange}
-                        className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 focus:border-cyan-500 focus:outline-none"
-                    >
-                        {[2,3,4,5,6,8].map(n => (
-                            <option key={n} value={n}>{n} Inputs</option>
-                        ))}
-                    </select>
-                 </div>
-             )}
-
-             {/* Bit Width for Multi-Bit IO */}
-             {isMultiBit && (
-                 <div className="space-y-1">
-                     <label className="text-xs text-zinc-500 dark:text-zinc-400">Bit Width</label>
-                     <select 
-                        value={currentBitWidth}
-                        onChange={handleBitWidthChange}
-                        className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 focus:border-cyan-500 focus:outline-none"
-                    >
-                        {[2,4,8,16].map(n => (
-                            <option key={n} value={n}>{n}-Bit</option>
-                        ))}
-                    </select>
-                 </div>
-             )}
-
-             {/* Propagation Delay for Logic Gates */}
-             {isGate && (
-                 <div className="space-y-1">
-                     <label className="text-xs text-zinc-500 dark:text-zinc-400">Propagation Delay (ms)</label>
-                     <input 
-                        type="number"
-                        value={node.properties?.propagationDelay || 0}
-                        onChange={handleDelayChange}
-                        className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 focus:border-cyan-500 focus:outline-none"
-                     />
-                     <p className="text-[10px] text-zinc-500 dark:text-zinc-600">Simulated logic delay.</p>
-                 </div>
-             )}
-
-             {/* Initial State for Switches or Flip Flops */}
-             {(isStateful || isSwitch) && (
-                 <div className="flex items-center justify-between bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2">
-                     <label className="text-xs text-zinc-500 dark:text-zinc-400">Initial State (High)</label>
-                     <input 
-                        type="checkbox"
-                        checked={!!node.properties?.initialState}
-                        onChange={handleInitialStateChange}
-                        className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 bg-zinc-100 dark:bg-zinc-800 text-cyan-500 focus:ring-0 focus:ring-offset-0"
-                     />
-                 </div>
-             )}
-
-             {/* ROM Value Configuration */}
-             {isROM && (
-                 <div className="flex items-center justify-between bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2">
-                     <label className="text-xs text-zinc-500 dark:text-zinc-400">Stored Value (1)</label>
-                     <input 
-                        type="checkbox"
-                        checked={!!node.properties?.romValue}
-                        onChange={handleROMValueChange}
-                        className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 bg-zinc-100 dark:bg-zinc-800 text-cyan-500 focus:ring-0 focus:ring-offset-0"
-                     />
-                 </div>
-             )}
-
-             {!isGate && !isStateful && !isSwitch && !isROM && !isMultiBit && (
-                <div className="text-xs text-zinc-400 dark:text-zinc-600 italic">
-                    No configurable attributes.
+                    <div className="pt-12 flex justify-center">
+                       <button 
+                         onClick={onClose}
+                         className="px-8 py-3 bg-zinc-800 dark:bg-zinc-100 text-white dark:text-black rounded-xl font-bold text-sm shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+                       >
+                         Apply & Return <ArrowLeft size={16} className="rotate-180" />
+                       </button>
+                    </div>
                 </div>
-             )}
+            )}
           </div>
-       </div>
-
-       <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 text-xs text-zinc-400 dark:text-zinc-600 text-center">
-           ID: <span className="font-mono text-zinc-500 dark:text-zinc-700">{node.id.split('-')[1]}...</span>
        </div>
     </div>
   );
