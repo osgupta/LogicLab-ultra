@@ -1,5 +1,6 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { GRID_SIZE, NODE_DEFINITIONS } from '../constants';
+import { GRID_SIZE, NODE_DEFINITIONS, MB_SPACING, MB_START_Y } from '../constants';
 import { CircuitState, NodeData, NodeType, Wire, Point, WiringState } from '../types';
 import { GateShape } from './GateShapes';
 import { getNodeDimensions, getInputPorts, getOutputPorts } from '../utils/componentUtils';
@@ -26,6 +27,7 @@ interface CircuitCanvasProps {
     setValidationResult: (res: any) => void;
     onOpenProperties?: () => void;
     intersectionLogicEnabled: boolean;
+    defaultWireThickness: number;
 }
 
 const getIntersection = (p1: Point, p2: Point, p3: Point, p4: Point): Point | null => {
@@ -49,7 +51,8 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     toolMode, wireMode, isSimulating,
     validationResult, setValidationResult,
     onOpenProperties,
-    intersectionLogicEnabled
+    intersectionLogicEnabled,
+    defaultWireThickness
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
@@ -57,6 +60,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
   const [wiring, setWiring] = useState<WiringState | null>(null);
+  const [hoveredPort, setHoveredPort] = useState<{ nodeId: string, index: number, isInput: boolean } | null>(null);
   const [mousePos, setMousePos] = useState<Point>({ x: 0, y: 0 });
 
   const getManhattanPoints = (x1: number, y1: number, x2: number, y2: number): Point[] => {
@@ -163,7 +167,6 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
     const isInteractive = ['SWITCH', 'BUTTON', 'INPUT_2BIT', 'INPUT_4BIT', 'INPUT_8BIT', 'INPUT_16BIT'].includes(node.type);
     
-    // DISTINCT INTERACT MODE: Only allow interaction if explicitly in interact mode or simulation is running
     if (toolMode === 'interact' || isSimulating) {
         if (isInteractive) {
             if (!isSimulating) onCommit();
@@ -176,6 +179,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                 const { width, height } = getNodeDimensions(node);
                 const bitCount = node.outputs.length;
 
+                // Check for clicking on the "Header" to set direct value
                 if (relY < 25) {
                     const inputVal = window.prompt(`Set Value for ${bitCount}-bit Input:`);
                     if (inputVal !== null) {
@@ -190,11 +194,12 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                     return;
                 }
 
+                // Check for individual bit clicks in the body or footer
                 let bitIndexToCheck = -1;
                 if (relY > height - 30) {
-                    const bitWidth = 10;
-                    const bitSpacing = 2;
-                    const nibbleGap = 6;
+                    const bitWidth = 8;
+                    const bitSpacing = 1;
+                    const nibbleGap = 4;
                     const totalWidth = bitCount * bitWidth + (bitCount - 1) * bitSpacing + Math.floor((bitCount - 1) / 4) * nibbleGap;
                     const startX = (width - totalWidth) / 2 + bitWidth / 2;
                     for (let i = 0; i < bitCount; i++) {
@@ -203,7 +208,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                         if (Math.abs(relX - xPos) < 10) { bitIndexToCheck = bitCount - 1 - i; break; }
                     }
                 } else {
-                    const rowIdx = Math.floor((relY - 25) / 20);
+                    const rowIdx = Math.floor((relY - MB_START_Y) / MB_SPACING); 
                     if (rowIdx >= 0 && rowIdx < bitCount) bitIndexToCheck = rowIdx;
                 }
                 
@@ -224,11 +229,9 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
             return;
         }
         
-        // If in interact mode but not an interactive component, do nothing (prevent accidental drag)
         if (toolMode === 'interact') return;
     }
 
-    // DISTINCT MOVE MODE: Only allow dragging if in move or junction mode
     if (toolMode === 'move' || toolMode === 'junction') {
         onCommit();
         setDraggingNodeId(id);
@@ -244,6 +247,29 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     const y = e.clientY - rect.top;
     setMousePos({ x, y });
 
+    // Automatic port snapping logic
+    if (wiring) {
+        let bestPort = null;
+        let minDist = 25; // Snap threshold radius
+
+        circuit.nodes.forEach(node => {
+            const ports = getInputPorts(node);
+            ports.forEach((offset, idx) => {
+                const px = node.position.x + offset.x;
+                const py = node.position.y + offset.y;
+                const dist = Math.sqrt(Math.pow(x - px, 2) + Math.pow(y - py, 2));
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestPort = { nodeId: node.id, index: idx, isInput: true };
+                }
+            });
+        });
+
+        if (bestPort !== hoveredPort) {
+            setHoveredPort(bestPort);
+        }
+    }
+
     if (draggingNodeId) {
         const snapX = Math.round((x - dragOffset.x) / GRID_SIZE) * GRID_SIZE;
         const snapY = Math.round((y - dragOffset.y) / GRID_SIZE) * GRID_SIZE;
@@ -252,9 +278,13 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (wiring && hoveredPort && hoveredPort.isInput) {
+        completeWiring(e, hoveredPort.nodeId, hoveredPort.index);
+    }
     setDraggingNodeId(null);
     setWiring(null);
+    setHoveredPort(null);
   };
 
   const handleContextMenu = (e: React.MouseEvent, id: string) => {
@@ -272,14 +302,27 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
   };
 
   const completeWiring = (e: React.PointerEvent, targetNodeId: string, inputIndex: number) => {
-    e.stopPropagation();
-    if (!wiring || wiring.sourceNodeId === targetNodeId) { setWiring(null); return; }
+    if (!wiring || wiring.sourceNodeId === targetNodeId) { 
+        setWiring(null);
+        return; 
+    }
     onCommit();
     const exists = circuit.wires.some(w => w.targetNodeId === targetNodeId && w.targetInputIndex === inputIndex);
     let newWires = exists ? circuit.wires.filter(w => !(w.targetNodeId === targetNodeId && w.targetInputIndex === inputIndex)) : [...circuit.wires];
-    newWires.push({ id: `wire-${Date.now()}`, sourceNodeId: wiring.sourceNodeId, sourceOutputIndex: wiring.sourceOutputIndex, targetNodeId: targetNodeId, targetInputIndex: inputIndex, state: false });
+    
+    newWires.push({ 
+        id: `wire-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, 
+        sourceNodeId: wiring.sourceNodeId, 
+        sourceOutputIndex: wiring.sourceOutputIndex, 
+        targetNodeId: targetNodeId, 
+        targetInputIndex: inputIndex, 
+        state: false,
+        thickness: defaultWireThickness
+    });
+    
     onUpdateCircuit(circuit.nodes, newWires);
     setWiring(null);
+    setHoveredPort(null);
   };
 
   const handleWireClick = (e: React.PointerEvent, wire: Wire) => {
@@ -300,14 +343,14 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     const junctionId = `node-${Date.now()}-junction`;
     const newJunction: NodeData = { id: junctionId, type: 'JUNCTION', position: { x: snapX - 5, y: snapY - 5 }, inputs: [false], outputs: [false], properties: { label: '' } };
     
-    const wire1_1: Wire = { id: `wire-${Date.now()}-1a`, sourceNodeId: wire1.sourceNodeId, sourceOutputIndex: wire1.sourceOutputIndex, targetNodeId: junctionId, targetInputIndex: 0, state: wire1.state };
-    const wire1_2: Wire = { id: `wire-${Date.now()}-1b`, sourceNodeId: junctionId, sourceOutputIndex: 0, targetNodeId: wire1.targetNodeId, targetInputIndex: wire1.targetInputIndex, state: wire1.state };
+    const wire1_1: Wire = { id: `wire-${Date.now()}-1a`, sourceNodeId: wire1.sourceNodeId, sourceOutputIndex: wire1.sourceOutputIndex, targetNodeId: junctionId, targetInputIndex: 0, state: wire1.state, thickness: wire1.thickness };
+    const wire1_2: Wire = { id: `wire-${Date.now()}-1b`, sourceNodeId: junctionId, sourceOutputIndex: 0, targetNodeId: wire1.targetNodeId, targetInputIndex: wire1.targetInputIndex, state: wire1.state, thickness: wire1.thickness };
     
     let newWires = circuit.wires.filter(w => w.id !== wire1.id).concat([wire1_1, wire1_2]);
     
     if (wire2) {
-        const wire2_1: Wire = { id: `wire-${Date.now()}-2a`, sourceNodeId: wire2.sourceNodeId, sourceOutputIndex: wire2.sourceOutputIndex, targetNodeId: junctionId, targetInputIndex: 0, state: wire2.state };
-        const wire2_2: Wire = { id: `wire-${Date.now()}-2b`, sourceNodeId: junctionId, sourceOutputIndex: 0, targetNodeId: wire2.targetNodeId, targetInputIndex: wire2.targetInputIndex, state: wire2.state };
+        const wire2_1: Wire = { id: `wire-${Date.now()}-2a`, sourceNodeId: wire2.sourceNodeId, sourceOutputIndex: wire2.sourceOutputIndex, targetNodeId: junctionId, targetInputIndex: 0, state: wire2.state, thickness: wire2.thickness };
+        const wire2_2: Wire = { id: `wire-${Date.now()}-2b`, sourceNodeId: junctionId, sourceOutputIndex: 0, targetNodeId: wire2.targetNodeId, targetInputIndex: wire2.targetInputIndex, state: wire2.state, thickness: wire2.thickness };
         newWires = newWires.filter(w => w.id !== wire2.id).concat([wire2_1, wire2_2]);
     }
 
@@ -329,9 +372,12 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
   const getWirePath = (x1: number, y1: number, x2: number, y2: number) => {
     if (wireMode === 'bezier') {
-        const dist = Math.abs(x2 - x1);
-        const controlPointOffset = Math.max(dist * 0.5, 50);
-        return `M ${x1} ${y1} C ${x1 + controlPointOffset} ${y1}, ${x2 - controlPointOffset} ${y2}, ${x2} ${y2}`;
+        const dx = Math.abs(x2 - x1);
+        const dy = Math.abs(y2 - y1);
+        const controlPointOffset = Math.min(Math.max(dx * 0.45, 30), 120);
+        // Add vertical bias for tight corners
+        const vBias = dx < 40 ? dy * 0.2 : 0;
+        return `M ${x1} ${y1} C ${x1 + controlPointOffset} ${y1 - vBias}, ${x2 - controlPointOffset} ${y2 + vBias}, ${x2} ${y2}`;
     }
     const dx = x2 - x1;
     if (dx > 20) {
@@ -345,10 +391,10 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
   const getLabelStyle = (pos: string | undefined): React.CSSProperties => {
       switch (pos) {
-          case 'Bottom': return { top: '100%', left: '50%', transform: 'translate(-50%, 8px)' };
-          case 'Left': return { top: '50%', right: '100%', transform: 'translate(-8px, -50%)' };
-          case 'Right': return { top: '50%', left: '100%', transform: 'translate(8px, -50%)' };
-          case 'Top': default: return { bottom: '100%', left: '50%', transform: 'translate(-50%, -8px)' };
+          case 'Bottom': return { top: '100%', left: '50%', transform: 'translate(-50%, 12px)' };
+          case 'Left': return { top: '50%', right: '100%', transform: 'translate(-12px, -50%)' };
+          case 'Right': return { top: '50%', left: '100%', transform: 'translate(12px, -50%)' };
+          case 'Top': default: return { bottom: '100%', left: '50%', transform: 'translate(-50%, -12px)' };
       }
   };
 
@@ -366,6 +412,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
         onPointerDown={handleCanvasClick}
         onContextMenu={(e) => e.preventDefault()}
     >
+        {/* Grid Background */}
         <svg className="absolute inset-0 pointer-events-none w-full h-full opacity-20 dark:opacity-20">
             <defs>
                 <pattern id="grid" width={GRID_SIZE} height={GRID_SIZE} patternUnits="userSpaceOnUse">
@@ -375,6 +422,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
             <rect width="100%" height="100%" fill="url(#grid)" />
         </svg>
 
+        {/* Wires Layer */}
         <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible">
             {circuit.wires.map(wire => {
                 const sourceNode = circuit.nodes.find(n => n.id === wire.sourceNodeId);
@@ -392,7 +440,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                 const pathData = getWirePath(startX, startY, endX, endY);
                 const inactiveColor = wire.color || (theme === 'dark' ? "#52525b" : "#a1a1aa");
                 const activeColor = wire.activeColor || "#22d3ee";
-                const thickness = wire.thickness || 2;
+                const thickness = wire.thickness || defaultWireThickness;
                 const strokeColor = wire.state ? activeColor : (isSelected ? activeColor : inactiveColor);
 
                 return (
@@ -403,8 +451,28 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                       className={`pointer-events-auto cursor-pointer group`}
                     >
                         <path d={pathData} stroke="transparent" strokeWidth={Math.max(16, thickness + 12)} fill="none" />
-                        {wire.state && <path d={pathData} stroke={activeColor} strokeWidth={thickness + 2} fill="none" opacity="0.3" filter="blur(2px)" />}
-                        <path d={pathData} stroke={strokeColor} strokeWidth={isSelected ? thickness + 1 : thickness} fill="none" className="transition-all duration-150" strokeDasharray={isSelected ? "4" : "0"} strokeLinejoin="round" strokeLinecap="round" />
+                        {wire.state && (
+                            <path 
+                                d={pathData} 
+                                stroke={activeColor} 
+                                strokeWidth={thickness + 3} 
+                                fill="none" 
+                                opacity="0.4" 
+                                filter="blur(3px)" 
+                                strokeDasharray={`4, ${thickness * 4}`}
+                                className="animate-signal-flow"
+                            />
+                        )}
+                        <path 
+                            d={pathData} 
+                            stroke={strokeColor} 
+                            strokeWidth={isSelected ? thickness + 1 : thickness} 
+                            fill="none" 
+                            className="transition-all duration-150" 
+                            strokeDasharray={isSelected ? "4" : "0"} 
+                            strokeLinejoin="round" 
+                            strokeLinecap="round" 
+                        />
                     </g>
                 );
             })}
@@ -419,28 +487,25 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                         createJunctionAtPoint(intersect.point, intersect.wire1, intersect.wire2);
                     }}
                 >
+                    <circle cx={intersect.point.x} cy={intersect.point.y} r="12" fill="transparent" />
                     <circle 
-                        cx={intersect.point.x} 
-                        cy={intersect.point.y} 
-                        r="12" 
-                        fill="transparent" 
-                    />
-                    <circle 
-                        cx={intersect.point.x} 
-                        cy={intersect.point.y} 
-                        r="4" 
-                        fill="none" 
-                        stroke="#22d3ee" 
-                        strokeWidth="1.5"
-                        strokeDasharray="2"
+                        cx={intersect.point.x} cy={intersect.point.y} r="4" 
+                        fill="none" stroke="#22d3ee" strokeWidth="1.5" strokeDasharray="2"
                         className="animate-spin-slow"
                     />
                 </g>
             ))}
 
-            {wiring && <path d={getWirePath(wiring.startPoint.x, wiring.startPoint.y, mousePos.x, mousePos.y)} stroke="#fbbf24" strokeWidth="2" fill="none" strokeDasharray="4" className="animate-pulse" strokeLinejoin="round" />}
+            {wiring && (
+                <path 
+                    d={getWirePath(wiring.startPoint.x, wiring.startPoint.y, hoveredPort ? circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!.position.x + (hoveredPort!.isInput ? getInputPorts(circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!)[hoveredPort!.index].x : getOutputPorts(circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!)[hoveredPort!.index].x) : mousePos.x, hoveredPort ? circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!.position.y + (hoveredPort!.isInput ? getInputPorts(circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!)[hoveredPort!.index].y : getOutputPorts(circuit.nodes.find(n => n.id === hoveredPort!.nodeId)!)[hoveredPort!.index].y) : mousePos.y)} 
+                    stroke={hoveredPort?.isInput ? "#22d3ee" : "#fbbf24"} 
+                    strokeWidth={defaultWireThickness} fill="none" strokeDasharray="4" className="animate-pulse" strokeLinejoin="round" 
+                />
+            )}
         </svg>
 
+        {/* Nodes and Ports Layer */}
         {circuit.nodes.map(node => {
             const { width, height } = getNodeDimensions(node);
             const isSelected = selectedId === node.id;
@@ -450,7 +515,6 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
             const def = NODE_DEFINITIONS[node.type];
             const canInteract = ['SWITCH', 'BUTTON', 'INPUT_2BIT', 'INPUT_4BIT', 'INPUT_8BIT', 'INPUT_16BIT'].includes(node.type);
             
-            // CURSOR LOGIC: Distinct visual feedback for Move vs Interact
             const cursorClass = (toolMode === 'interact' || isSimulating) 
                 ? (canInteract ? 'cursor-pointer' : 'cursor-default') 
                 : (toolMode === 'move' ? 'cursor-grab active:cursor-grabbing' : 'cursor-default');
@@ -472,39 +536,23 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                     </div>
 
                     {isSelected && (
-                      <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 shadow-xl pointer-events-auto z-[70] animate-in zoom-in-95">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onOpenProperties?.(); }}
-                          className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-cyan-600 rounded-md transition-colors"
-                          title="Open Properties"
-                        >
-                          <Settings2 size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); (window as any).deleteSelection?.(); }}
-                          className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950 text-red-500 rounded-md transition-colors"
-                          title="Delete Node"
-                        >
-                          <X size={16} />
-                        </button>
+                      <div className="absolute -top-10 left/2 -translate-x-1/2 flex items-center gap-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 shadow-xl pointer-events-auto z-[70] animate-in zoom-in-95">
+                        <button onClick={(e) => { e.stopPropagation(); onOpenProperties?.(); }} className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-cyan-600 rounded-md transition-colors" title="Open Properties"><Settings2 size={16} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); (window as any).deleteSelection?.(); }} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950 text-red-500 rounded-md transition-colors" title="Delete Node"><X size={16} /></button>
                       </div>
-                    )}
-
-                    {isInvalid && (
-                        <div className="absolute -top-3 -right-3 text-red-500 bg-white dark:bg-zinc-950 rounded-full p-1 shadow-md border border-red-200 dark:border-red-900 animate-bounce z-50">
-                            <AlertTriangle size={16} />
-                        </div>
                     )}
 
                     {inputPorts.map((offset, idx) => {
                         const isFloating = validationResult?.floatingInputs?.some(fi => fi.nodeId === node.id && fi.index === idx);
+                        const isHovered = hoveredPort?.nodeId === node.id && hoveredPort?.index === idx && hoveredPort.isInput;
                         return (
                         <div key={`input-${idx}`}
-                            className="absolute w-10 h-10 -ml-5 -mt-5 rounded-full pointer-events-auto flex items-center justify-center hover:scale-125 transition-transform z-10 cursor-crosshair"
+                            className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full pointer-events-auto flex items-center justify-center transition-all z-20 cursor-crosshair"
                             style={{ left: offset.x, top: offset.y }}
-                            onPointerUp={(e) => !isSimulating && completeWiring(e, node.id, idx)}
+                            onPointerUp={(e) => wiring && completeWiring(e, node.id, idx)}
                         >
-                            <div className={`w-3.5 h-3.5 rounded-full bg-white dark:bg-zinc-900 border-2 transition-all duration-300 ${
+                            <div className={`w-3.5 h-3.5 rounded-full bg-white dark:bg-zinc-900 border-2 transition-all duration-200 ${
+                                isHovered ? 'border-cyan-400 bg-cyan-400 scale-150 ring-4 ring-cyan-500/30' :
                                 isFloating ? 'border-red-500 bg-red-500/30 ring-4 ring-red-500/20 animate-pulse' : 
                                 node.inputs[idx] ? 'border-cyan-400 bg-cyan-100 dark:bg-cyan-900' : 'border-zinc-400 dark:border-zinc-500'
                             }`} />
@@ -514,26 +562,53 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
                     {outputPorts.map((offset, idx) => (
                         <div key={`output-${idx}`}
-                            className="absolute w-10 h-10 -ml-5 -mt-5 rounded-full pointer-events-auto flex items-center justify-center hover:scale-125 transition-transform z-10 cursor-crosshair"
+                            className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full pointer-events-auto flex items-center justify-center transition-transform z-20 cursor-crosshair"
                             style={{ left: offset.x, top: offset.y }}
                             onPointerDown={(e) => !isSimulating && startWiring(e, node.id, idx)}
                         >
-                            <div className={`w-3.5 h-3.5 rounded-full bg-white dark:bg-zinc-900 border-2 ${node.outputs[idx] ? 'border-cyan-400 bg-cyan-500' : 'border-zinc-400 dark:border-zinc-500 group-hover:border-zinc-600 dark:group-hover:border-zinc-300'}`} />
+                            <div className={`w-3.5 h-3.5 rounded-full bg-white dark:bg-zinc-900 border-2 ${node.outputs[idx] ? 'border-cyan-400 bg-cyan-500' : 'border-zinc-400 dark:border-zinc-500'}`} />
                         </div>
                     ))}
-                    
-                    {(isSelected || node.properties?.label) && node.type !== 'JUNCTION' && (
-                        <div className={`absolute bg-white/95 dark:bg-zinc-900/95 text-zinc-800 dark:text-zinc-100 text-[10px] px-2 py-0.5 rounded border whitespace-nowrap shadow-md pointer-events-none backdrop-blur-sm z-[60] transition-colors
-                            ${isSelected ? 'border-cyan-500 font-bold' : 'border-zinc-200 dark:border-zinc-700'}`}
-                            style={getLabelStyle(node.properties?.labelPosition)}
-                        >
-                            {node.properties?.label || def.name}
-                        </div>
-                    )}
                 </div>
             );
         })}
 
+        {/* Global Label Overlay Layer (Renders on top of everything) */}
+        <div className="absolute inset-0 pointer-events-none z-[100]">
+            {circuit.nodes.map(node => {
+                const isSelected = selectedId === node.id;
+                const def = NODE_DEFINITIONS[node.type];
+                if (node.type === 'JUNCTION') return null;
+                if (!isSelected && !node.properties?.label) return null;
+
+                const { width, height } = getNodeDimensions(node);
+                const labelStyle = getLabelStyle(node.properties?.labelPosition);
+
+                return (
+                    <div 
+                        key={`label-overlay-${node.id}`}
+                        className={`absolute flex items-center justify-center transition-all duration-200 
+                            ${isSelected ? 'z-[110]' : 'z-[100]'}`}
+                        style={{ 
+                            left: node.position.x, 
+                            top: node.position.y, 
+                            width: width, 
+                            height: height 
+                        }}
+                    >
+                        <div 
+                            className={`absolute bg-white/95 dark:bg-zinc-900/95 text-zinc-800 dark:text-zinc-100 text-[11px] px-2.5 py-1 rounded-md border whitespace-nowrap shadow-xl backdrop-blur-md transition-all
+                                ${isSelected ? 'border-cyan-500 ring-2 ring-cyan-500/20 font-bold scale-105' : 'border-zinc-200 dark:border-zinc-800 font-medium opacity-90'}`}
+                            style={labelStyle}
+                        >
+                            {node.properties?.label || def.name}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+
+        {/* Pending Component Ghost */}
         {pendingComponent && pendingDef && (
             <div className="absolute pointer-events-none opacity-50 z-50"
                 style={{ left: ghostSnapX, top: ghostSnapY, width: pendingDef.width, height: pendingDef.height }}>
@@ -548,14 +623,18 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                 from { transform: rotate(0deg); }
                 to { transform: rotate(360deg); }
             }
+            @keyframes signal-flow {
+                from { stroke-dashoffset: 20; }
+                to { stroke-dashoffset: 0; }
+            }
             .animate-spin-slow {
                 animation: spin-slow 8s linear infinite;
                 transform-origin: center;
+            }
+            .animate-signal-flow {
+                animation: signal-flow 0.8s linear infinite;
             }
         `}</style>
     </div>
   );
 };
-
-const ShieldCheck = ({ size, className }: { size: number, className: string }) => <Info size={size} className={className} />;
-const ShieldAlert = ({ size, className }: { size: number, className: string }) => <AlertTriangle size={size} className={className} />;

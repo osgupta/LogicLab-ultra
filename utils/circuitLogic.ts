@@ -1,3 +1,4 @@
+
 import { NodeData, Wire, NodeType } from '../types';
 
 export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: NodeData[], wires: Wire[] } => {
@@ -9,8 +10,6 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
     properties: { ...n.properties }
   }));
   let nextWires = wires.map(w => ({ ...w }));
-
-  const initialNodesState = new Map(nodes.map(n => [n.id, n]));
 
   let stable = false;
   let iterations = 0;
@@ -42,45 +41,22 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
     });
 
     nextNodes.forEach(node => {
-      if (['SWITCH', 'CLOCK', 'BUTTON', 'INPUT_2BIT', 'INPUT_4BIT', 'INPUT_8BIT', 'INPUT_16BIT'].includes(node.type)) return;
+      if (['TOGGLE_SWITCH', 'CLOCK', 'PUSH_BUTTON', 'INPUT_2BIT', 'INPUT_4BIT', 'INPUT_8BIT', 'INPUT_16BIT', 'VCC', 'GND'].includes(node.type)) return;
 
       const oldOutputs = [...node.outputs];
       let newOutputs = [...oldOutputs];
-
-      const prevNodeState = initialNodesState.get(node.id);
       
       switch (node.type) {
-        case 'AND': 
-          newOutputs = [node.inputs.every(v => v === true)]; 
-          break;
-        case 'OR': 
-          newOutputs = [node.inputs.some(v => v === true)]; 
-          break;
-        case 'NOT': 
-          newOutputs = [!node.inputs[0]]; 
-          break;
-        case 'NAND': 
-          newOutputs = [!node.inputs.every(v => v === true)]; 
-          break;
-        case 'NOR': 
-          newOutputs = [!node.inputs.some(v => v === true)]; 
-          break;
-        case 'XOR': 
-          newOutputs = [node.inputs.filter(v => v).length % 2 === 1]; 
-          break;
-        case 'XNOR': 
-          newOutputs = [node.inputs.filter(v => v).length % 2 === 0]; 
-          break;
+        case 'AND': newOutputs = [node.inputs.every(v => v === true)]; break;
+        case 'OR': newOutputs = [node.inputs.some(v => v === true)]; break;
+        case 'NOT': newOutputs = [!node.inputs[0]]; break;
+        case 'NAND': newOutputs = [!node.inputs.every(v => v === true)]; break;
+        case 'NOR': newOutputs = [!node.inputs.some(v => v === true)]; break;
+        case 'XOR': newOutputs = [node.inputs.filter(v => v).length % 2 === 1]; break;
+        case 'XNOR': newOutputs = [node.inputs.filter(v => v).length % 2 === 0]; break;
         case 'BUFFER': newOutputs = [node.inputs[0]]; break;
-        case 'CONSTANT_1': newOutputs = [true]; break;
-        case 'CONSTANT_0': newOutputs = [false]; break;
-        case 'JUNCTION':
-            newOutputs = [node.inputs[0]];
-            break;
-        case 'BULB': case 'HEX_DISPLAY': case 'SEVEN_SEGMENT': 
-        case 'OUTPUT_2BIT': case 'OUTPUT_4BIT': case 'OUTPUT_8BIT': case 'OUTPUT_16BIT':
-        case 'LOGIC_PROBE': case 'BINARY_MONITOR_4BIT': case 'BINARY_MONITOR_8BIT':
-            break; 
+        case 'TRI_STATE_BUFFER': newOutputs = [node.inputs[1] ? node.inputs[0] : false]; break;
+        case 'JUNCTION': newOutputs = [node.inputs[0]]; break;
         case 'HALF_ADDER': {
            const a = node.inputs[0]; const b = node.inputs[1];
            newOutputs = [a !== b, a && b]; 
@@ -102,12 +78,16 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
             newOutputs = [a && !b, a === b, !a && b];
             break;
         }
-        case 'MUX_2_1':
-           newOutputs = [node.inputs[2] ? node.inputs[1] : node.inputs[0]];
-           break;
+        case 'MUX_2_1': newOutputs = [node.inputs[2] ? node.inputs[1] : node.inputs[0]]; break;
         case 'MUX_4_1': {
             const s0 = node.inputs[4]; const s1 = node.inputs[5];
             const idx = (s0?1:0) + (s1?2:0);
+            newOutputs = [node.inputs[idx]];
+            break;
+        }
+        case 'MUX_8_1': {
+            const s0 = node.inputs[8]; const s1 = node.inputs[9]; const s2 = node.inputs[10];
+            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
             newOutputs = [node.inputs[idx]];
             break;
         }
@@ -123,10 +103,33 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
             newOutputs[idx] = d;
             break;
         }
+        case 'DEMUX_1_8': {
+            const d = node.inputs[0]; const s0 = node.inputs[1]; const s1 = node.inputs[2]; const s2 = node.inputs[3];
+            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
+            newOutputs = new Array(8).fill(false);
+            newOutputs[idx] = d;
+            break;
+        }
+        case 'DEMUX_1_16': {
+            const d = node.inputs[0]; 
+            const s0 = node.inputs[1]; const s1 = node.inputs[2]; 
+            const s2 = node.inputs[3]; const s3 = node.inputs[4];
+            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0) + (s3?8:0);
+            newOutputs = new Array(16).fill(false);
+            newOutputs[idx] = d;
+            break;
+        }
         case 'DECODER_2_4': {
             const s0 = node.inputs[0]; const s1 = node.inputs[1];
             const idx = (s0?1:0) + (s1?2:0);
             newOutputs = [false, false, false, false];
+            newOutputs[idx] = true;
+            break;
+        }
+        case 'DECODER_3_8': {
+            const s0 = node.inputs[0]; const s1 = node.inputs[1]; const s2 = node.inputs[2];
+            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
+            newOutputs = new Array(8).fill(false);
             newOutputs[idx] = true;
             break;
         }
@@ -150,12 +153,8 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'D_FF': {
            const D = node.inputs[0]; const Clk = node.inputs[1];
            const lastClk = node.internalState?.lastClock || false;
-           const trigger = node.properties?.trigger || 'Rising';
-           let triggered = false;
-           if (trigger === 'Rising') triggered = !lastClk && Clk;
-           else if (trigger === 'Falling') triggered = lastClk && !Clk;
            let Q = oldOutputs[0];
-           if (triggered) { Q = D; }
+           if (!lastClk && Clk) { Q = D; }
            newOutputs = [Q, !Q];
            node.internalState = { ...node.internalState, lastClock: Clk };
            break;
@@ -163,12 +162,8 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'T_FF': {
            const T = node.inputs[0]; const Clk = node.inputs[1];
            const lastClk = node.internalState?.lastClock || false;
-           const trigger = node.properties?.trigger || 'Rising';
-           let triggered = false;
-           if (trigger === 'Rising') triggered = !lastClk && Clk;
-           else if (trigger === 'Falling') triggered = lastClk && !Clk;
            let Q = oldOutputs[0];
-           if (triggered) { if (T) Q = !Q; }
+           if (!lastClk && Clk) { if (T) Q = !Q; }
            newOutputs = [Q, !Q];
            node.internalState = { ...node.internalState, lastClock: Clk };
            break;
@@ -176,12 +171,8 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'JK_FF': {
            const J = node.inputs[0]; const Clk = node.inputs[1]; const K = node.inputs[2];
            const lastClk = node.internalState?.lastClock || false;
-           const trigger = node.properties?.trigger || 'Rising';
-           let triggered = false;
-           if (trigger === 'Rising') triggered = !lastClk && Clk;
-           else if (trigger === 'Falling') triggered = lastClk && !Clk;
            let Q = oldOutputs[0];
-           if (triggered) {
+           if (!lastClk && Clk) {
                if (J && !K) Q = true;
                else if (!J && K) Q = false;
                else if (J && K) Q = !Q;
@@ -193,15 +184,8 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'SR_FF': {
             const S = node.inputs[0]; const Clk = node.inputs[1]; const R = node.inputs[2];
             const lastClk = node.internalState?.lastClock || false;
-            const trigger = node.properties?.trigger || 'Rising';
-            let triggered = false;
-            if (trigger === 'Rising') triggered = !lastClk && Clk;
-            else if (trigger === 'Falling') triggered = lastClk && !Clk;
             let Q = oldOutputs[0];
-            if (triggered) {
-                if (S && !R) Q = true;
-                else if (!S && R) Q = false;
-            }
+            if (!lastClk && Clk) { if (S && !R) Q = true; else if (!S && R) Q = false; }
             newOutputs = [Q, !Q];
             node.internalState = { ...node.internalState, lastClock: Clk };
             break;
@@ -209,10 +193,7 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'GATED_SR_LATCH': {
             const S = node.inputs[0]; const En = node.inputs[1]; const R = node.inputs[2];
             let Q = oldOutputs[0];
-            if (En) {
-                if (S && !R) Q = true;
-                else if (!S && R) Q = false;
-            }
+            if (En) { if (S && !R) Q = true; else if (!S && R) Q = false; }
             newOutputs = [Q, !Q];
             break;
         }
@@ -220,16 +201,12 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
             const J = node.inputs[0]; const Clk = node.inputs[1]; const K = node.inputs[2];
             const lastClk = node.internalState?.lastClock || false;
             let Q = oldOutputs[0];
-            if (lastClk && !Clk) {
-                if (J && !K) Q = true;
-                else if (!J && K) Q = false;
-                else if (J && K) Q = !Q;
-            }
+            if (lastClk && !Clk) { if (J && !K) Q = true; else if (!J && K) Q = false; else if (J && K) Q = !Q; }
             newOutputs = [Q, !Q];
             node.internalState = { ...node.internalState, lastClock: Clk };
             break;
         }
-        case 'RAM_1BIT': {
+        case 'MEMORY_CELL': {
             const Data = node.inputs[0]; const Write = node.inputs[1]; const Sel = node.inputs[2];
             let stored = node.internalState?.storedValue || false;
             if (Sel && Write) { stored = Data; }
@@ -246,55 +223,112 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'SHIFT_REGISTER_4BIT': {
              const Data = node.inputs[0]; const Clk = node.inputs[1];
              const lastClk = node.internalState?.lastClock || false;
-             const trigger = node.properties?.trigger || 'Rising';
-             let triggered = false;
-             if (trigger === 'Rising') triggered = !lastClk && Clk;
-             else if (trigger === 'Falling') triggered = lastClk && !Clk;
              let reg = node.internalState?.register || [false, false, false, false];
-             if (triggered) { reg = [Data, reg[0], reg[1], reg[2]]; }
+             if (!lastClk && Clk) { reg = [Data, reg[0], reg[1], reg[2]]; }
              newOutputs = [...reg];
              node.internalState = { ...node.internalState, lastClock: Clk, register: reg };
              break;
         }
-        case 'RAM_4BIT':
-        case 'RAM_8BIT':
-        case 'RAM_16BIT': {
-            const dataWidth = node.type === 'RAM_4BIT' ? 4 : (node.type === 'RAM_8BIT' ? 8 : 16);
-            const addrWidth = 4;
-            let address = 0;
-            for(let i=0; i<addrWidth; i++) { if(node.inputs[i]) address += Math.pow(2, i); }
-            let dataIn = 0;
-            for(let i=0; i<dataWidth; i++) { if(node.inputs[addrWidth + i]) dataIn += Math.pow(2, i); }
-            const WE = node.inputs[addrWidth + dataWidth];
-            const CS = node.inputs[addrWidth + dataWidth + 1];
-            let memory = node.internalState?.memory;
-            if (!memory || !Array.isArray(memory)) { memory = new Array(16).fill(0); }
-            let val = 0;
-            if (CS) {
-                if (WE) { memory[address] = dataIn; }
-                val = memory[address];
+        case 'ALU_4BIT': {
+            let a = 0; for(let i=0; i<4; i++) { if(node.inputs[i]) a += Math.pow(2, i); }
+            let b = 0; for(let i=4; i<8; i++) { if(node.inputs[i]) b += Math.pow(2, i-4); }
+            const op = (node.inputs[8]?1:0) + (node.inputs[9]?2:0);
+            let result = 0; let carry = false;
+            switch(op) {
+              case 0: result = a + b; carry = result > 15; break;
+              case 1: result = a - b; carry = a < b; if(result < 0) result += 16; break;
+              case 2: result = a & b; break;
+              case 3: result = a | b; break;
             }
             newOutputs = [];
-            for(let i=0; i<dataWidth; i++) { newOutputs.push(!!((val >> i) & 1)); }
+            for(let i=0; i<4; i++) { newOutputs.push(!!((result >> i) & 1)); }
+            newOutputs.push(carry);
+            newOutputs.push((result % 16) === 0);
+            break;
+        }
+        case 'COUNTER_4BIT': {
+          const clk = node.inputs[0]; const rst = node.inputs[1];
+          const lastClk = node.internalState?.lastClock || false;
+          let val = node.internalState?.counterValue || 0;
+          if (rst) { val = 0; }
+          else if (!lastClk && clk) { val = (val + 1) % 16; }
+          newOutputs = [];
+          for(let i=0; i<4; i++) { newOutputs.push(!!((val >> i) & 1)); }
+          node.internalState = { ...node.internalState, lastClock: clk, counterValue: val };
+          break;
+        }
+        case 'REG_4BIT': {
+          const clk = node.inputs[4];
+          const lastClk = node.internalState?.lastClock || false;
+          let reg = node.internalState?.register || [false, false, false, false];
+          if (!lastClk && clk) { reg = [node.inputs[0], node.inputs[1], node.inputs[2], node.inputs[3]]; }
+          newOutputs = [...reg];
+          node.internalState = { ...node.internalState, lastClock: clk, register: reg };
+          break;
+        }
+        case 'RAM_4BIT':
+        case 'RAM_8BIT':
+        case 'RAM_16BIT':
+        case 'RAM_64_8':
+        case 'RAM_256_8':
+        case 'RAM_64BIT':
+        case 'RAM_128BIT':
+        case 'RAM_256BIT': {
+            let addrWidth = 4;
+            let dataWidth = 4;
+            
+            if (node.type === 'RAM_4BIT') { addrWidth = 4; dataWidth = 4; }
+            else if (node.type === 'RAM_8BIT') { addrWidth = 4; dataWidth = 8; }
+            else if (node.type === 'RAM_16BIT') { addrWidth = 4; dataWidth = 16; }
+            else if (node.type === 'RAM_64_8') { addrWidth = 6; dataWidth = 8; }
+            else if (node.type === 'RAM_256_8') { addrWidth = 8; dataWidth = 8; }
+            else if (node.type === 'RAM_64BIT') { addrWidth = 3; dataWidth = 8; }
+            else if (node.type === 'RAM_128BIT') { addrWidth = 4; dataWidth = 8; }
+            else if (node.type === 'RAM_256BIT') { addrWidth = 5; dataWidth = 8; }
+
+            const totalWords = Math.pow(2, addrWidth);
+            let address = 0;
+            for(let i=0; i<addrWidth; i++) { if(node.inputs[i]) address += Math.pow(2, i); }
+            
+            let dataIn = 0;
+            for(let i=0; i<dataWidth; i++) { if(node.inputs[addrWidth + i]) dataIn += Math.pow(2, i); }
+            
+            const WE = node.inputs[addrWidth + dataWidth];
+            const CS = node.inputs[addrWidth + dataWidth + 1];
+            
+            let memory = node.internalState?.memory;
+            if (!memory || !Array.isArray(memory)) { memory = new Array(totalWords).fill(0); }
+            
+            let val = 0;
             const nextMemory = [...memory];
-            if (CS && WE) { nextMemory[address] = dataIn; }
+            if (CS) { 
+                if (WE) { nextMemory[address] = dataIn; } 
+                val = nextMemory[address]; 
+            }
+            
+            newOutputs = [];
+            for(let i=0; i<dataWidth; i++) { newOutputs.push(CS ? !!((val >> i) & 1) : false); }
             node.internalState = { ...node.internalState, memory: nextMemory };
+            break;
+        }
+        case 'ROM_4BIT':
+        case 'ROM_8BIT': {
+            const addrWidth = 4;
+            const dataWidth = node.type === 'ROM_4BIT' ? 4 : 8;
+            const totalWords = Math.pow(2, addrWidth);
+            let address = 0;
+            for(let i=0; i<addrWidth; i++) { if(node.inputs[i]) address += Math.pow(2, i); }
+            const CS = node.inputs[addrWidth];
+            let romData = node.properties?.romData;
+            if (!romData || !Array.isArray(romData)) { romData = new Array(totalWords).fill(0); }
+            const val = CS ? romData[address] : 0;
+            newOutputs = [];
+            for(let i=0; i<dataWidth; i++) { newOutputs.push(!!((val >> i) & 1)); }
             break;
         }
       }
 
-      let changed = false;
-      if (newOutputs.length !== node.outputs.length) changed = true;
-      else {
-          for(let i=0; i<newOutputs.length; i++) {
-              if (node.outputs[i] !== newOutputs[i]) {
-                  changed = true;
-                  break;
-              }
-          }
-      }
-
-      if (changed) {
+      if (JSON.stringify(newOutputs) !== JSON.stringify(oldOutputs)) {
           node.outputs = newOutputs;
           stable = false;
       }

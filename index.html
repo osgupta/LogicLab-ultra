@@ -42,6 +42,16 @@
       .dark ::-webkit-scrollbar-thumb:hover {
         background: #52525b; 
       }
+      
+      /* Utility to hide scrollbar but keep functionality */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
       body {
         margin: 0;
         overflow: hidden; /* Prevent scrolling the whole app */

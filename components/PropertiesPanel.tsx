@@ -1,6 +1,6 @@
 import React from 'react';
 import { NodeData, Wire } from '../types';
-import { Settings2, Type, Palette, Clock, X, Droplets, Zap, Power, Activity, ArrowLeft } from 'lucide-react';
+import { Settings2, Type, Palette, Clock, X, Droplets, Zap, Power, Activity, ArrowLeft, Timer } from 'lucide-react';
 
 interface PropertiesPanelProps {
   node: NodeData | null;
@@ -63,6 +63,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ node, wire, on
   const supportsInitialState = node && [
     'SWITCH', 'D_LATCH', 'D_FF', 'JK_FF', 'T_FF', 'SR_FF', 'GATED_SR_LATCH', 'JK_MASTER_SLAVE'
   ].includes(node.type);
+
+  // Frequency calculation: 
+  // Base tick rate in App.tsx is 50ms (20 ticks/sec).
+  // A clock toggles every 'interval' ticks. Full period = 2 * interval.
+  // Freq = 1 / (2 * interval * 0.05s) = 10 / interval.
+  const calculateFreq = (interval: number) => {
+    if (!interval) return 0;
+    return (10 / interval).toFixed(2);
+  };
+
+  const setClockByFreq = (freq: number) => {
+    if (!node) return;
+    const interval = Math.round(10 / freq);
+    onUpdate(node.id, { properties: { ...node.properties, interval } });
+  };
 
   return (
     <div style={{ width }} className="bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden">
@@ -174,13 +189,50 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ node, wire, on
                     {node!.type === 'CLOCK' && (
                         <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800/50">
                             {renderHeader("Signal Configuration", Activity)}
-                            <div className="flex justify-between mb-3">
-                              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Pulse Interval (Frequency)</span>
-                              <span className="text-sm font-mono text-amber-500">{node!.properties?.interval || 20} ticks</span>
-                            </div>
-                            <input type="range" min="2" max="200" step="2" value={node!.properties?.interval || 20} onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, interval: parseInt(e.target.value) } })} className="w-full h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg accent-amber-500 appearance-none cursor-pointer"/>
-                            <div className="text-[11px] text-zinc-400 mt-4 bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 italic">
-                              A lower interval results in a faster clock frequency. 20 ticks is approximately 1 second at 50Hz simulation speed.
+                            <div className="space-y-6">
+                              <div>
+                                <div className="flex justify-between items-end mb-3">
+                                  <div className="space-y-1">
+                                    <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Clock Frequency</span>
+                                    <div className="text-2xl font-black text-amber-500 font-mono tracking-tight">
+                                      {calculateFreq(node!.properties?.interval || 20)} <span className="text-xs uppercase text-zinc-500">Hz</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-[10px] text-zinc-500 font-bold uppercase">Interval</span>
+                                    <div className="text-sm font-mono text-zinc-400">{node!.properties?.interval || 20} ticks</div>
+                                  </div>
+                                </div>
+                                <input 
+                                  type="range" min="2" max="200" step="2" 
+                                  value={node!.properties?.interval || 20} 
+                                  onChange={(e) => onUpdate(node!.id, { properties: { ...node!.properties, interval: parseInt(e.target.value) } })} 
+                                  className="w-full h-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg accent-amber-500 appearance-none cursor-pointer shadow-inner"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-2">
+                                {[0.5, 1, 2, 5].map(hz => (
+                                  <button 
+                                    key={hz}
+                                    onClick={() => setClockByFreq(hz)}
+                                    className={`py-2 px-1 rounded-lg border text-[10px] font-black transition-all active:scale-95 ${
+                                      calculateFreq(node!.properties?.interval || 20) === hz.toFixed(2)
+                                        ? 'bg-amber-500 border-amber-500 text-white shadow-lg' 
+                                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-amber-500'
+                                    }`}
+                                  >
+                                    {hz} Hz
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="text-[11px] text-zinc-400 bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 flex gap-3">
+                                <Timer size={16} className="shrink-0 text-amber-500" />
+                                <p className="leading-relaxed">
+                                  Simulation runs at 20 ticks per second. A frequency of 1Hz toggles every 10 ticks.
+                                </p>
+                              </div>
                             </div>
                         </div>
                     )}
