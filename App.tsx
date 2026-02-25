@@ -7,6 +7,7 @@ import { PropertiesPanel } from './components/PropertiesPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { ThemeProvider, useTheme } from './components/ThemeContext';
+import { AuthProvider } from './components/AuthContext';
 import { CircuitState, NodeData, NodeType, Wire, Point } from './types';
 import { evaluateCircuit } from './utils/circuitLogic';
 import { NODE_DEFINITIONS } from './constants';
@@ -68,11 +69,38 @@ const AppContent: React.FC = () => {
       try {
         const parsed = JSON.parse(savedAutosave) as CircuitState;
         if (parsed.nodes && parsed.wires) {
+          // Ensure the requested INPUT_4BIT node is present
+          const hasRequestedNode = parsed.nodes.some(n => n.type === 'INPUT_4BIT' && n.position.x === 100 && n.position.y === 100);
+          if (!hasRequestedNode) {
+            parsed.nodes.push({
+              id: `node-${Date.now()}-input-4bit`,
+              type: 'INPUT_4BIT',
+              position: { x: 100, y: 100 },
+              inputs: [],
+              outputs: [false, false, false, false],
+              properties: { label: 'Input 4-Bit', labelPosition: 'Top' }
+            });
+          }
           setCircuit(parsed);
         }
       } catch (e) {
         console.error("Failed to load autosave", e);
       }
+    } else {
+      // Default initial state with the requested node
+      setCircuit({
+        nodes: [
+          {
+            id: 'node-initial-input-4bit',
+            type: 'INPUT_4BIT',
+            position: { x: 100, y: 100 },
+            inputs: [],
+            outputs: [false, false, false, false],
+            properties: { label: 'Input 4-Bit', labelPosition: 'Top' }
+          }
+        ],
+        wires: []
+      });
     }
     
     if (savedName) setCircuitName(savedName);
@@ -542,5 +570,5 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => <ThemeProvider><AppContent /></ThemeProvider>;
+const App: React.FC = () => <ThemeProvider><AuthProvider><AppContent /></AuthProvider></ThemeProvider>;
 export default App;

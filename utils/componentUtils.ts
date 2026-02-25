@@ -1,3 +1,4 @@
+
 import { NODE_DEFINITIONS } from '../constants';
 import { NodeData, NodeType } from '../types';
 
@@ -27,7 +28,11 @@ export const getInputPorts = (node: NodeData): { x: number, y: number, label?: s
     // Distribute ports evenly along the left edge
     const step = height / (count + 1); 
     for (let i = 0; i < count; i++) {
-        ports.push({ x: 0, y: (i + 1) * step });
+        ports.push({ 
+          x: 0, 
+          y: (i + 1) * step,
+          label: String.fromCharCode(65 + i) // Conventional A, B, C, D...
+        });
     }
     return ports;
   }

@@ -1,20 +1,23 @@
 
 export type NodeType = 
   | 'AND' | 'OR' | 'NOT' | 'XOR' | 'NAND' | 'NOR' | 'XNOR' | 'BUFFER' | 'TRI_STATE_BUFFER'
+  | 'ODD_PARITY' | 'EVEN_PARITY'
   | 'TOGGLE_SWITCH' | 'LED' | 'CLOCK' | 'PUSH_BUTTON' | 'VCC' | 'GND'
   | 'INPUT_2BIT' | 'INPUT_4BIT' | 'INPUT_8BIT' | 'INPUT_16BIT'
   | 'OUTPUT_2BIT' | 'OUTPUT_4BIT' | 'OUTPUT_8BIT' | 'OUTPUT_16BIT'
-  | 'HALF_ADDER' | 'FULL_ADDER' | 'SUBTRACTOR' | 'COMPARATOR_1BIT'
-  | 'ALU_4BIT' | 'COUNTER_4BIT' | 'REG_4BIT'
+  | 'HALF_ADDER' | 'FULL_ADDER' | 'SUBTRACTOR' | 'COMPARATOR_1BIT' | 'COMPARATOR_8BIT'
+  | 'MULTIPLIER_4BIT' | 'MULTIPLIER_8BIT' | 'DIVIDER_4BIT' | 'DIVIDER_8BIT'
+  | 'SHIFTER_8BIT' | 'BIT_EXTENDER'
+  | 'ALU_4BIT' | 'COUNTER_4BIT' | 'COUNTER_8BIT' | 'REG_4BIT' | 'REG_8BIT'
   | 'D_LATCH' | 'D_FF' | 'JK_FF' | 'T_FF' | 'SR_FF'
-  | 'GATED_SR_LATCH' | 'JK_MASTER_SLAVE' | 'MEMORY_CELL' | 'ROM_1BIT' | 'SHIFT_REGISTER_4BIT'
+  | 'GATED_SR_LATCH' | 'JK_MASTER_SLAVE' | 'MEMORY_CELL' | 'ROM_1BIT' | 'SHIFT_REGISTER_4BIT' | 'SHIFT_REGISTER_8BIT'
   | 'RAM_4BIT' | 'RAM_8BIT' | 'RAM_16BIT' | 'RAM_64_8' | 'RAM_256_8'
   | 'RAM_64BIT' | 'RAM_128BIT' | 'RAM_256BIT'
   | 'ROM_4BIT' | 'ROM_8BIT'
-  | 'MUX_2_1' | 'MUX_4_1' | 'MUX_8_1' | 'DEMUX_1_2' | 'DEMUX_1_4' | 'DEMUX_1_8' | 'DEMUX_1_16'
-  | 'DECODER_2_4' | 'DECODER_3_8' | 'PRIORITY_ENCODER_4_2'
-  | 'HEX_DIGIT' | 'SEVEN_SEGMENT'
-  // Corrected typo from JUNITION to JUNCTION
+  | 'MUX_2_1' | 'MUX_4_1' | 'MUX_8_1' | 'MUX_16_1'
+  | 'DEMUX_1_2' | 'DEMUX_1_4' | 'DEMUX_1_8' | 'DEMUX_1_16'
+  | 'DECODER_2_4' | 'DECODER_3_8' | 'DECODER_4_16' | 'PRIORITY_ENCODER_4_2' | 'ENCODER_8_3'
+  | 'HEX_DIGIT' | 'SEVEN_SEGMENT' | 'RGB_LED' | 'LED_BAR_8BIT'
   | 'JUNCTION'
   | 'LOGIC_PROBE'
   | 'BINARY_MONITOR_4BIT'
@@ -45,15 +48,19 @@ export interface NodeData {
     register?: boolean[]; 
     memory?: number[]; 
     counterValue?: number;
+    tickCount?: number;
     [key: string]: any;
   };
   properties?: {
     label?: string;
+    labelPosition?: 'Top' | 'Bottom' | 'Left' | 'Right';
     inputCount?: number;
     propagationDelay?: number;
     initialState?: boolean;
     romValue?: boolean; 
     romData?: number[]; 
+    interval?: number;
+    color?: string;
     [key: string]: any;
   };
 }

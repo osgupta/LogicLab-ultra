@@ -95,6 +95,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
             const p2 = t1.position.x + getInputPorts(t1)[w1.targetInputIndex].x;
             const q2 = t1.position.y + getInputPorts(t1)[w1.targetInputIndex].y;
 
+            // FIX: Define missing p3, q3, p4, q4 for the second wire (w2)
             const p3 = s2.position.x + getOutputPorts(s2)[w2.sourceOutputIndex].x;
             const q3 = s2.position.y + getOutputPorts(s2)[w2.sourceOutputIndex].y;
             const p4 = t2.position.x + getInputPorts(t2)[w2.targetInputIndex].x;
@@ -556,6 +557,13 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                                 isFloating ? 'border-red-500 bg-red-500/30 ring-4 ring-red-500/20 animate-pulse' : 
                                 node.inputs[idx] ? 'border-cyan-400 bg-cyan-100 dark:bg-cyan-900' : 'border-zinc-400 dark:border-zinc-500'
                             }`} />
+                            
+                            {/* Input Port Labels on Selection */}
+                            {isSelected && offset.label && !node.type.startsWith('INPUT_') && !node.type.startsWith('OUTPUT_') && (
+                                <div className="absolute left-full ml-1 px-1.5 py-0.5 bg-zinc-800/90 text-white text-[7px] font-mono rounded border border-zinc-700 shadow-sm pointer-events-none whitespace-nowrap z-50">
+                                    {offset.label}
+                                </div>
+                            )}
                         </div>
                         );
                     })}

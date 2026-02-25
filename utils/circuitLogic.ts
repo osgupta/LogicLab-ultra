@@ -1,6 +1,9 @@
 
 import { NodeData, Wire, NodeType } from '../types';
 
+const bitsToInt = (bits: boolean[]) => bits.reduce((acc, b, i) => acc + (b ? Math.pow(2, i) : 0), 0);
+const intToBits = (val: number, length: number) => Array.from({ length }, (_, i) => !!((val >> i) & 1));
+
 export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: NodeData[], wires: Wire[] } => {
   let nextNodes = nodes.map(n => ({ 
     ...n, 
@@ -56,6 +59,8 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
         case 'XNOR': newOutputs = [node.inputs.filter(v => v).length % 2 === 0]; break;
         case 'BUFFER': newOutputs = [node.inputs[0]]; break;
         case 'TRI_STATE_BUFFER': newOutputs = [node.inputs[1] ? node.inputs[0] : false]; break;
+        case 'ODD_PARITY': newOutputs = [node.inputs.filter(v => v).length % 2 === 1]; break;
+        case 'EVEN_PARITY': newOutputs = [node.inputs.filter(v => v).length % 2 === 0]; break;
         case 'JUNCTION': newOutputs = [node.inputs[0]]; break;
         case 'HALF_ADDER': {
            const a = node.inputs[0]; const b = node.inputs[1];
@@ -78,16 +83,63 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
             newOutputs = [a && !b, a === b, !a && b];
             break;
         }
+        case 'COMPARATOR_8BIT': {
+            const a = bitsToInt(node.inputs.slice(0, 8));
+            const b = bitsToInt(node.inputs.slice(8, 16));
+            newOutputs = [a > b, a === b, a < b];
+            break;
+        }
+        case 'MULTIPLIER_4BIT': {
+            const a = bitsToInt(node.inputs.slice(0, 4));
+            const b = bitsToInt(node.inputs.slice(4, 8));
+            newOutputs = intToBits(a * b, 4);
+            break;
+        }
+        case 'MULTIPLIER_8BIT': {
+            const a = bitsToInt(node.inputs.slice(0, 8));
+            const b = bitsToInt(node.inputs.slice(8, 16));
+            newOutputs = intToBits(a * b, 8);
+            break;
+        }
+        case 'DIVIDER_4BIT': {
+            const a = bitsToInt(node.inputs.slice(0, 4));
+            const b = bitsToInt(node.inputs.slice(4, 8));
+            if (b === 0) { newOutputs = new Array(8).fill(false); }
+            else { newOutputs = [...intToBits(Math.floor(a / b), 4), ...intToBits(a % b, 4)]; }
+            break;
+        }
+        case 'DIVIDER_8BIT': {
+            const a = bitsToInt(node.inputs.slice(0, 8));
+            const b = bitsToInt(node.inputs.slice(8, 16));
+            if (b === 0) { newOutputs = new Array(16).fill(false); }
+            else { newOutputs = [...intToBits(Math.floor(a / b), 8), ...intToBits(a % b, 8)]; }
+            break;
+        }
+        case 'SHIFTER_8BIT': {
+            const data = bitsToInt(node.inputs.slice(0, 8));
+            const shift = bitsToInt(node.inputs.slice(8, 11));
+            // Standard left shift for now
+            newOutputs = intToBits(data << shift, 8);
+            break;
+        }
+        case 'BIT_EXTENDER': {
+            // Extends 4 bits to 8 (Zero extension)
+            newOutputs = [...node.inputs.slice(0, 4), false, false, false, false];
+            break;
+        }
         case 'MUX_2_1': newOutputs = [node.inputs[2] ? node.inputs[1] : node.inputs[0]]; break;
         case 'MUX_4_1': {
             const s0 = node.inputs[4]; const s1 = node.inputs[5];
-            const idx = (s0?1:0) + (s1?2:0);
-            newOutputs = [node.inputs[idx]];
+            newOutputs = [node.inputs[(s0?1:0) + (s1?2:0)]];
             break;
         }
         case 'MUX_8_1': {
-            const s0 = node.inputs[8]; const s1 = node.inputs[9]; const s2 = node.inputs[10];
-            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
+            const idx = bitsToInt(node.inputs.slice(8, 11));
+            newOutputs = [node.inputs[idx]];
+            break;
+        }
+        case 'MUX_16_1': {
+            const idx = bitsToInt(node.inputs.slice(16, 20));
             newOutputs = [node.inputs[idx]];
             break;
         }
@@ -97,233 +149,129 @@ export const evaluateCircuit = (nodes: NodeData[], wires: Wire[]): { nodes: Node
             break;
         }
         case 'DEMUX_1_4': {
-            const d = node.inputs[0]; const s0 = node.inputs[1]; const s1 = node.inputs[2];
-            const idx = (s0?1:0) + (s1?2:0);
-            newOutputs = [false, false, false, false];
-            newOutputs[idx] = d;
+            const idx = bitsToInt(node.inputs.slice(1, 3));
+            newOutputs = new Array(4).fill(false);
+            newOutputs[idx] = node.inputs[0];
             break;
         }
         case 'DEMUX_1_8': {
-            const d = node.inputs[0]; const s0 = node.inputs[1]; const s1 = node.inputs[2]; const s2 = node.inputs[3];
-            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
+            const idx = bitsToInt(node.inputs.slice(1, 4));
             newOutputs = new Array(8).fill(false);
-            newOutputs[idx] = d;
+            newOutputs[idx] = node.inputs[0];
             break;
         }
         case 'DEMUX_1_16': {
-            const d = node.inputs[0]; 
-            const s0 = node.inputs[1]; const s1 = node.inputs[2]; 
-            const s2 = node.inputs[3]; const s3 = node.inputs[4];
-            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0) + (s3?8:0);
+            const idx = bitsToInt(node.inputs.slice(1, 5));
             newOutputs = new Array(16).fill(false);
-            newOutputs[idx] = d;
+            newOutputs[idx] = node.inputs[0];
             break;
         }
         case 'DECODER_2_4': {
-            const s0 = node.inputs[0]; const s1 = node.inputs[1];
-            const idx = (s0?1:0) + (s1?2:0);
-            newOutputs = [false, false, false, false];
-            newOutputs[idx] = true;
+            newOutputs = new Array(4).fill(false);
+            newOutputs[bitsToInt(node.inputs)] = true;
             break;
         }
         case 'DECODER_3_8': {
-            const s0 = node.inputs[0]; const s1 = node.inputs[1]; const s2 = node.inputs[2];
-            const idx = (s0?1:0) + (s1?2:0) + (s2?4:0);
             newOutputs = new Array(8).fill(false);
-            newOutputs[idx] = true;
+            newOutputs[bitsToInt(node.inputs)] = true;
+            break;
+        }
+        case 'DECODER_4_16': {
+            newOutputs = new Array(16).fill(false);
+            newOutputs[bitsToInt(node.inputs)] = true;
             break;
         }
         case 'PRIORITY_ENCODER_4_2': {
-            const i0 = node.inputs[0]; const i1 = node.inputs[1];
-            const i2 = node.inputs[2]; const i3 = node.inputs[3];
-            let a0 = false, a1 = false, v = false;
-            if (i3) { a1=true; a0=true; v=true; }
-            else if (i2) { a1=true; a0=false; v=true; }
-            else if (i1) { a1=false; a0=true; v=true; }
-            else if (i0) { a1=false; a0=false; v=true; }
+            let a0=false, a1=false, v=false;
+            if(node.inputs[3]){a1=true; a0=true; v=true;}
+            else if(node.inputs[2]){a1=true; a0=false; v=true;}
+            else if(node.inputs[1]){a1=false; a0=true; v=true;}
+            else if(node.inputs[0]){a1=false; a0=false; v=true;}
             newOutputs = [a0, a1, v];
             break;
         }
+        case 'ENCODER_8_3': {
+            let v = false, res = 0;
+            for(let i=7; i>=0; i--) { if(node.inputs[i]) { res = i; v = true; break; } }
+            newOutputs = [...intToBits(res, 3), v];
+            break;
+        }
         case 'D_LATCH': {
-           const D = node.inputs[0]; const E = node.inputs[1];
-           const Q = E ? D : oldOutputs[0];
+           const Q = node.inputs[1] ? node.inputs[0] : oldOutputs[0];
            newOutputs = [Q, !Q];
            break;
         }
         case 'D_FF': {
-           const D = node.inputs[0]; const Clk = node.inputs[1];
            const lastClk = node.internalState?.lastClock || false;
            let Q = oldOutputs[0];
-           if (!lastClk && Clk) { Q = D; }
+           if (!lastClk && node.inputs[1]) { Q = node.inputs[0]; }
            newOutputs = [Q, !Q];
-           node.internalState = { ...node.internalState, lastClock: Clk };
-           break;
-        }
-        case 'T_FF': {
-           const T = node.inputs[0]; const Clk = node.inputs[1];
-           const lastClk = node.internalState?.lastClock || false;
-           let Q = oldOutputs[0];
-           if (!lastClk && Clk) { if (T) Q = !Q; }
-           newOutputs = [Q, !Q];
-           node.internalState = { ...node.internalState, lastClock: Clk };
+           node.internalState = { ...node.internalState, lastClock: node.inputs[1] };
            break;
         }
         case 'JK_FF': {
-           const J = node.inputs[0]; const Clk = node.inputs[1]; const K = node.inputs[2];
            const lastClk = node.internalState?.lastClock || false;
            let Q = oldOutputs[0];
-           if (!lastClk && Clk) {
-               if (J && !K) Q = true;
-               else if (!J && K) Q = false;
-               else if (J && K) Q = !Q;
+           if (!lastClk && node.inputs[1]) {
+               const J=node.inputs[0], K=node.inputs[2];
+               if(J && !K) Q=true; else if(!J && K) Q=false; else if(J && K) Q=!Q;
            }
            newOutputs = [Q, !Q];
-           node.internalState = { ...node.internalState, lastClock: Clk };
+           node.internalState = { ...node.internalState, lastClock: node.inputs[1] };
            break;
         }
-        case 'SR_FF': {
-            const S = node.inputs[0]; const Clk = node.inputs[1]; const R = node.inputs[2];
-            const lastClk = node.internalState?.lastClock || false;
-            let Q = oldOutputs[0];
-            if (!lastClk && Clk) { if (S && !R) Q = true; else if (!S && R) Q = false; }
-            newOutputs = [Q, !Q];
-            node.internalState = { ...node.internalState, lastClock: Clk };
-            break;
+        case 'REG_4BIT': {
+           const lastClk = node.internalState?.lastClock || false;
+           if (!lastClk && node.inputs[4]) { newOutputs = node.inputs.slice(0, 4); }
+           node.internalState = { ...node.internalState, lastClock: node.inputs[4] };
+           break;
         }
-        case 'GATED_SR_LATCH': {
-            const S = node.inputs[0]; const En = node.inputs[1]; const R = node.inputs[2];
-            let Q = oldOutputs[0];
-            if (En) { if (S && !R) Q = true; else if (!S && R) Q = false; }
-            newOutputs = [Q, !Q];
-            break;
-        }
-        case 'JK_MASTER_SLAVE': {
-            const J = node.inputs[0]; const Clk = node.inputs[1]; const K = node.inputs[2];
-            const lastClk = node.internalState?.lastClock || false;
-            let Q = oldOutputs[0];
-            if (lastClk && !Clk) { if (J && !K) Q = true; else if (!J && K) Q = false; else if (J && K) Q = !Q; }
-            newOutputs = [Q, !Q];
-            node.internalState = { ...node.internalState, lastClock: Clk };
-            break;
-        }
-        case 'MEMORY_CELL': {
-            const Data = node.inputs[0]; const Write = node.inputs[1]; const Sel = node.inputs[2];
-            let stored = node.internalState?.storedValue || false;
-            if (Sel && Write) { stored = Data; }
-            newOutputs = [Sel ? stored : false];
-            node.internalState = { ...node.internalState, storedValue: stored };
-            break;
-        }
-        case 'ROM_1BIT': {
-             const Sel = node.inputs[0];
-             const val = node.properties?.romValue || false;
-             newOutputs = [Sel ? val : false];
-             break;
-        }
-        case 'SHIFT_REGISTER_4BIT': {
-             const Data = node.inputs[0]; const Clk = node.inputs[1];
-             const lastClk = node.internalState?.lastClock || false;
-             let reg = node.internalState?.register || [false, false, false, false];
-             if (!lastClk && Clk) { reg = [Data, reg[0], reg[1], reg[2]]; }
-             newOutputs = [...reg];
-             node.internalState = { ...node.internalState, lastClock: Clk, register: reg };
-             break;
-        }
-        case 'ALU_4BIT': {
-            let a = 0; for(let i=0; i<4; i++) { if(node.inputs[i]) a += Math.pow(2, i); }
-            let b = 0; for(let i=4; i<8; i++) { if(node.inputs[i]) b += Math.pow(2, i-4); }
-            const op = (node.inputs[8]?1:0) + (node.inputs[9]?2:0);
-            let result = 0; let carry = false;
-            switch(op) {
-              case 0: result = a + b; carry = result > 15; break;
-              case 1: result = a - b; carry = a < b; if(result < 0) result += 16; break;
-              case 2: result = a & b; break;
-              case 3: result = a | b; break;
-            }
-            newOutputs = [];
-            for(let i=0; i<4; i++) { newOutputs.push(!!((result >> i) & 1)); }
-            newOutputs.push(carry);
-            newOutputs.push((result % 16) === 0);
-            break;
+        case 'REG_8BIT': {
+           const lastClk = node.internalState?.lastClock || false;
+           if (!lastClk && node.inputs[8]) { newOutputs = node.inputs.slice(0, 8); }
+           node.internalState = { ...node.internalState, lastClock: node.inputs[8] };
+           break;
         }
         case 'COUNTER_4BIT': {
-          const clk = node.inputs[0]; const rst = node.inputs[1];
           const lastClk = node.internalState?.lastClock || false;
           let val = node.internalState?.counterValue || 0;
-          if (rst) { val = 0; }
-          else if (!lastClk && clk) { val = (val + 1) % 16; }
-          newOutputs = [];
-          for(let i=0; i<4; i++) { newOutputs.push(!!((val >> i) & 1)); }
-          node.internalState = { ...node.internalState, lastClock: clk, counterValue: val };
+          if (node.inputs[1]) val = 0;
+          else if (!lastClk && node.inputs[0]) val = (val + 1) % 16;
+          newOutputs = intToBits(val, 4);
+          node.internalState = { ...node.internalState, lastClock: node.inputs[0], counterValue: val };
           break;
         }
-        case 'REG_4BIT': {
-          const clk = node.inputs[4];
+        case 'COUNTER_8BIT': {
           const lastClk = node.internalState?.lastClock || false;
-          let reg = node.internalState?.register || [false, false, false, false];
-          if (!lastClk && clk) { reg = [node.inputs[0], node.inputs[1], node.inputs[2], node.inputs[3]]; }
-          newOutputs = [...reg];
-          node.internalState = { ...node.internalState, lastClock: clk, register: reg };
+          let val = node.internalState?.counterValue || 0;
+          if (node.inputs[1]) val = 0;
+          else if (!lastClk && node.inputs[0]) val = (val + 1) % 256;
+          newOutputs = intToBits(val, 8);
+          node.internalState = { ...node.internalState, lastClock: node.inputs[0], counterValue: val };
           break;
         }
-        case 'RAM_4BIT':
-        case 'RAM_8BIT':
-        case 'RAM_16BIT':
-        case 'RAM_64_8':
-        case 'RAM_256_8':
-        case 'RAM_64BIT':
-        case 'RAM_128BIT':
-        case 'RAM_256BIT': {
-            let addrWidth = 4;
-            let dataWidth = 4;
-            
-            if (node.type === 'RAM_4BIT') { addrWidth = 4; dataWidth = 4; }
-            else if (node.type === 'RAM_8BIT') { addrWidth = 4; dataWidth = 8; }
-            else if (node.type === 'RAM_16BIT') { addrWidth = 4; dataWidth = 16; }
-            else if (node.type === 'RAM_64_8') { addrWidth = 6; dataWidth = 8; }
-            else if (node.type === 'RAM_256_8') { addrWidth = 8; dataWidth = 8; }
-            else if (node.type === 'RAM_64BIT') { addrWidth = 3; dataWidth = 8; }
-            else if (node.type === 'RAM_128BIT') { addrWidth = 4; dataWidth = 8; }
-            else if (node.type === 'RAM_256BIT') { addrWidth = 5; dataWidth = 8; }
-
-            const totalWords = Math.pow(2, addrWidth);
-            let address = 0;
-            for(let i=0; i<addrWidth; i++) { if(node.inputs[i]) address += Math.pow(2, i); }
-            
-            let dataIn = 0;
-            for(let i=0; i<dataWidth; i++) { if(node.inputs[addrWidth + i]) dataIn += Math.pow(2, i); }
-            
-            const WE = node.inputs[addrWidth + dataWidth];
-            const CS = node.inputs[addrWidth + dataWidth + 1];
-            
-            let memory = node.internalState?.memory;
-            if (!memory || !Array.isArray(memory)) { memory = new Array(totalWords).fill(0); }
-            
+        case 'RAM_4BIT': case 'RAM_8BIT': case 'RAM_16BIT': case 'RAM_64_8': case 'RAM_256_8':
+        case 'RAM_64BIT': case 'RAM_128BIT': case 'RAM_256BIT': {
+            let aW=4, dW=4;
+            if(node.type==='RAM_8BIT')dW=8; else if(node.type==='RAM_16BIT')dW=16; 
+            else if(node.type==='RAM_64_8'){aW=6;dW=8;} else if(node.type==='RAM_256_8'){aW=8;dW=8;}
+            else if(node.type==='RAM_64BIT'){aW=3;dW=8;} else if(node.type==='RAM_128BIT'){aW=4;dW=8;}
+            else if(node.type==='RAM_256BIT'){aW=5;dW=8;}
+            const addr = bitsToInt(node.inputs.slice(0, aW));
+            const dataIn = bitsToInt(node.inputs.slice(aW, aW + dW));
+            const we = node.inputs[aW + dW], cs = node.inputs[aW + dW + 1];
+            let mem = node.internalState?.memory || new Array(Math.pow(2, aW)).fill(0);
             let val = 0;
-            const nextMemory = [...memory];
-            if (CS) { 
-                if (WE) { nextMemory[address] = dataIn; } 
-                val = nextMemory[address]; 
-            }
-            
-            newOutputs = [];
-            for(let i=0; i<dataWidth; i++) { newOutputs.push(CS ? !!((val >> i) & 1) : false); }
-            node.internalState = { ...node.internalState, memory: nextMemory };
+            if (cs) { if(we){ mem[addr] = dataIn; } val = mem[addr]; }
+            newOutputs = intToBits(cs ? val : 0, dW);
+            node.internalState = { ...node.internalState, memory: [...mem] };
             break;
         }
-        case 'ROM_4BIT':
-        case 'ROM_8BIT': {
-            const addrWidth = 4;
-            const dataWidth = node.type === 'ROM_4BIT' ? 4 : 8;
-            const totalWords = Math.pow(2, addrWidth);
-            let address = 0;
-            for(let i=0; i<addrWidth; i++) { if(node.inputs[i]) address += Math.pow(2, i); }
-            const CS = node.inputs[addrWidth];
-            let romData = node.properties?.romData;
-            if (!romData || !Array.isArray(romData)) { romData = new Array(totalWords).fill(0); }
-            const val = CS ? romData[address] : 0;
-            newOutputs = [];
-            for(let i=0; i<dataWidth; i++) { newOutputs.push(!!((val >> i) & 1)); }
+        case 'ROM_4BIT': case 'ROM_8BIT': {
+            const aW=4, dW = node.type==='ROM_4BIT'?4:8;
+            const addr = bitsToInt(node.inputs.slice(0, aW)), cs = node.inputs[aW];
+            const data = node.properties?.romData || new Array(16).fill(0);
+            newOutputs = intToBits(cs ? data[addr] : 0, dW);
             break;
         }
       }
